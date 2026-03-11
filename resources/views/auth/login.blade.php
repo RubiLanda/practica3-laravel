@@ -2,6 +2,12 @@
     <!-- Session Status -->
     <x-auth-session-status class="mb-4" :status="session('status')" />
 
+    @if ($errors->has('error_superior'))
+    <div class="mb-4 font-medium text-sm text-red-600 bg-red-100 border border-red-400 px-4 py-3 rounded relative">
+        {{ $errors->first('error_superior') }}
+    </div>
+    @endif
+
     <form method="POST" action="{{ route('login') }}">
         @csrf
 
@@ -24,13 +30,13 @@
             <x-input-error :messages="$errors->get('password')" class="mt-2" />
         </div>
 
-        <!-- Remember Me -->
+        <!-- Remember Me 
         <div class="block mt-4">
             <label for="remember_me" class="inline-flex items-center">
                 <input id="remember_me" type="checkbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500" name="remember">
                 <span class="ms-2 text-sm text-gray-600">{{ __('Remember me') }}</span>
             </label>
-        </div>
+        </div>-->
 
         <div class="flex items-center justify-end mt-4">
             @if (Route::has('password.request'))
@@ -39,9 +45,20 @@
                 </a>
             @endif
 
+        <div class="mt-4">
+            <div class="g-recaptcha" data-sitekey="{{ env('RECAPTCHA_SITE_KEY') }}"></div>
+    
+            @if ($errors->has('g-recaptcha-response'))
+                <span class="text-sm text-red-600 mt-2">
+                    {{ $errors->first('g-recaptcha-response') }}
+                </span>
+             @endif
+        </div>
+
             <x-primary-button class="ms-3">
                 {{ __('Log in') }}
             </x-primary-button>
         </div>
     </form>
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 </x-guest-layout>
