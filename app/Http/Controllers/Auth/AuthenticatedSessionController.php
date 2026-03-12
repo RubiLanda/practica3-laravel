@@ -59,59 +59,67 @@ class AuthenticatedSessionController extends Controller
         // Si el usuario NO tiene configurado el 2FA (primera vez)
         if (!$user->google2fa_secret) {
             $secret = Google2FA::generateSecretKey();
-            $user->google2fa_secret = $secret; // El mutator en el modelo lo encriptará
+            $user->google2fa_secret = $secret; //encriptado para q no se pueda escanear con una camara normal
             $user->save();
 
             $qrCodeUrl =Google2FA::getQRCodeUrl(
-                'MiAppLaravel', // Nombre de la app en el cel
+                'MiAppLaravel', // nombre de la app en el cel
                 $user->email,
                 $secret
             );
 
             $qrCodeImage = QrCode::size(200)->generate($qrCodeUrl);
 
-            // Guardamos el ID en sesión para el siguiente paso (verificación)
+            //guardamos el ID para la siguiente sesion
             session(['2fa_user_id' => $user->id]);
 
             return view('auth.2fa_setup', compact('qrCodeImage', 'secret'));
         }
 
-            // Si YA tiene configurado el 2FA, solo pedimos el código de 6 dígitos
+            // Si ya tiene el factor solo le pedimos el codigo
             session(['2fa_user_id' => $user->id]);
             return view('auth.2fa_verify');
         
     }
 
     public function verify2fa(Request $request)
-{
-    $request->validate([
-        'one_time_password' => 'required|numeric',
+    {
+       $request->validate([
+        'one_time_password' => [
+            'required',
+            'numeric',      
+            'digits:6',     
+        ],
+    ], [
+        // Mensajes personalizados
+        'one_time_password.numeric' => 'El código debe contener solo números.',
+        'one_time_password.digits' => 'El código debe tener exactamente 6 dígitos.',
     ]);
 
-    // Recuperamos al usuario que intentó loguearse
-    $userId = session('2fa_user_id');
-    if (!$userId) {
-        return redirect()->route('login')->withErrors(['error_superior' => 'Sesión expirada.']);
+        // Recuperamos al usuario que intentó loguearse
+        $userId = session('2fa_user_id');
+        if (!$userId) {
+            return redirect()->route('login')->withErrors(['error_superior' => 'Sesión expirada.']);
+        }
+
+        $user = User::findOrFail($userId);
+        $google2fa = new Google2FA();
+
+        // Verificamos el código (el secreto se desencripta solo gracias al modelo)
+        $valid = Google2FA::verifyKey($user->google2fa_secret, $request->one_time_password);
+
+        if ($valid) {
+            // iniciamos sesión oficialmente
+            Auth::login($user);
+            
+            // Limpiamos la sesión temporal
+            session()->forget('2fa_user_id');
+
+            return redirect()->intended(RouteServiceProvider::HOME);
+        }
+
+        return back()->withErrors(['error_2fa' => 'El código ingresado es incorrecto o ya expiró.']);
     }
-
-    $user = User::findOrFail($userId);
-    $google2fa = new Google2FA();
-
-    // Verificamos el código (el secreto se desencripta solo gracias a tu modelo)
-    $valid = Google2FA::verifyKey($user->google2fa_secret, $request->one_time_password);
-
-    if ($valid) {
-        // ¡Código correcto! Ahora sí iniciamos sesión oficialmente
-        Auth::login($user);
-        
-        // Limpiamos la sesión temporal
-        session()->forget('2fa_user_id');
-
-        return redirect()->intended(RouteServiceProvider::HOME);
-    }
-
-    return back()->withErrors(['error_2fa' => 'El código ingresado es incorrecto o ya expiró.']);
-}
 
     /**
      * Destroy an authenticated session.
