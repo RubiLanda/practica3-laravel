@@ -4,6 +4,7 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\pruebaCorreo; 
 use App\Http\Controllers\CodigoController;
+use App\Http\Controllers\Auth\AuthenticatedSessionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,11 +32,11 @@ Route::get('/dashboard', function () {
 });*/
 
 
-Route::get('/probar-correo', [pruebaCorreo::class, 'enviarPrueba']);
-
 //ruta firmada
-Route::get('/activar',[CodigoController::class,'vistaCodigo'])->name('activar')->middleware('signed');
-Route::post('/verificar-codigo/{id}', [CodigoController::class, 'verificarCodigo'])->name('verificar');
+//Route::get('/activar',[CodigoController::class,'vistaCodigo'])->name('activar')->middleware('signed');
+//Route::post('/verificar-codigo/{id}', [CodigoController::class, 'verificarCodigo'])->name('verificar');
+
+Route::post('/verify-2fa', [AuthenticatedSessionController::class, 'verify2fa'])->name('2fa.verify');
 
 
 require __DIR__.'/auth.php';

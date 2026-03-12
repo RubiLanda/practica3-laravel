@@ -8,15 +8,13 @@ use App\Providers\RouteServiceProvider;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Http;
 use Illuminate\View\View;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use App\Mail\EnviarMail;
-use Illuminate\Support\Str;
-use Illuminate\Routing\Exceptions\InvalidSignatureException;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
+// Elimina la línea de PragmaRX que tienes y pon esta:
+use Google2FA;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -41,7 +39,7 @@ class AuthenticatedSessionController extends Controller
         'secret' => env('RECAPTCHA_SECRET_KEY'),
         'response' => $recaptchaResponse,
         'remoteip' => $request->ip(),
-    ]);
+        ]);
 
         if (!$verify->json('success')) {
             return redirect()->back()
@@ -55,22 +53,65 @@ class AuthenticatedSessionController extends Controller
             ->withErrors(['error_superior' => 'Credenciales incorrectas'])
             ->withInput();
         }
-
         $user = User::where('email', $request->email)->first();
-        $codigo=str_pad(rand(0,999999),6,'0', STR_PAD_LEFT);
-        $user->codigo=$codigo;
-        $user->save();
+        $google2fa = new Google2FA();
 
-        //ruta firmada
-         $link = URL::temporarySignedRoute('activar',now()->addMinutes(15),['id' => $user->id]);
-        try {
-            Mail::to($user->email)->send(new EnviarMail($user, $link, $codigo));
+        // Si el usuario NO tiene configurado el 2FA (primera vez)
+        if (!$user->google2fa_secret) {
+            $secret = Google2FA::generateSecretKey();
+            $user->google2fa_secret = $secret; // El mutator en el modelo lo encriptará
+            $user->save();
 
-            return redirect()->back()->with('status', '¡Código enviado! Revisa tu bandeja de entrada.');
-        } catch (\Exception $e) {
-           return redirect()->back()->withErrors(['email' => 'Error al enviar el correo: ' . $e->getMessage()]);
+            $qrCodeUrl =Google2FA::getQRCodeUrl(
+                'MiAppLaravel', // Nombre de la app en el cel
+                $user->email,
+                $secret
+            );
+
+            $qrCodeImage = QrCode::size(200)->generate($qrCodeUrl);
+
+            // Guardamos el ID en sesión para el siguiente paso (verificación)
+            session(['2fa_user_id' => $user->id]);
+
+            return view('auth.2fa_setup', compact('qrCodeImage', 'secret'));
         }
+
+            // Si YA tiene configurado el 2FA, solo pedimos el código de 6 dígitos
+            session(['2fa_user_id' => $user->id]);
+            return view('auth.2fa_verify');
+        
     }
+
+    public function verify2fa(Request $request)
+{
+    $request->validate([
+        'one_time_password' => 'required|numeric',
+    ]);
+
+    // Recuperamos al usuario que intentó loguearse
+    $userId = session('2fa_user_id');
+    if (!$userId) {
+        return redirect()->route('login')->withErrors(['error_superior' => 'Sesión expirada.']);
+    }
+
+    $user = User::findOrFail($userId);
+    $google2fa = new Google2FA();
+
+    // Verificamos el código (el secreto se desencripta solo gracias a tu modelo)
+    $valid = Google2FA::verifyKey($user->google2fa_secret, $request->one_time_password);
+
+    if ($valid) {
+        // ¡Código correcto! Ahora sí iniciamos sesión oficialmente
+        Auth::login($user);
+        
+        // Limpiamos la sesión temporal
+        session()->forget('2fa_user_id');
+
+        return redirect()->intended(RouteServiceProvider::HOME);
+    }
+
+    return back()->withErrors(['error_2fa' => 'El código ingresado es incorrecto o ya expiró.']);
+}
 
     /**
      * Destroy an authenticated session.
